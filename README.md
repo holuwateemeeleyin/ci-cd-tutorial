@@ -1,0 +1,1 @@
+This project demonstrates a modern DevOps pipeline that automates the deployment of a containerized application. Instead of manually uploading code, every time you git push to the main branch, GitHub Actions builds a Docker image and deploys it to AWS App Runner
