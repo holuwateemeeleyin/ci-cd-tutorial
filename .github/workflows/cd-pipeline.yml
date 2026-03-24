@@ -1,4 +1,4 @@
-name: CD Pipeline to Google Cloud Run (staging and production)
+name: CD Pipeline to AWS App Runner (staging and production)
 on:
   push:
     branches:
@@ -9,7 +9,7 @@ on:
 
 env:
   PORT: 5001
-  IMAGE: ${{vars.IMAGE}}:${{github.sha}}
+  REPO_NAME: ci-cd-project
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -26,53 +26,27 @@ jobs:
   build:
     needs: test
     runs-on: ubuntu-latest
-    name: Setup project, Authorize GitHub Actions to GCP and Docker Hub, and deploy
+    name: Build Docker Image & Push to ECR
     steps:
       - name: Checkout
         uses: actions/checkout@v3
 
-      - name: Authenticate for GCP
-        id: gcp-auth
-        uses: google-github-actions/auth@v0
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          credentials_json: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v0
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Authenticate for Docker Hub
-        id: docker-auth
+      - name: Build, tag, and push image to Amazon ECR
         env:
-          D_USER: ${{secrets.DOCKER_USER}}
-          D_PASS: ${{secrets.DOCKER_PASSWORD}}
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
         run: |
-          docker login -u $D_USER -p $D_PASS
-      - name: Build and tag Image
-        run: |
-          docker build -t ${{env.IMAGE}} .
-      - name: Push the image to Docker hub
-        run: |
-          docker push ${{env.IMAGE}}
-      - name: Enable the Billing API
-        run: |
-          gcloud services enable cloudbilling.googleapis.com --project=${{secrets.GCP_PROJECT_ID}}
-      - name: Deploy to GCP Run - Production environment (If a new release was published from the master branch)
-        if: github.event_name == 'release' && github.event.action == 'published' && github.event.release.target_commitish == 'main'
-        run: |
-          gcloud run deploy ${{vars.GCR_PROJECT_NAME}} \
-          --region ${{vars.GCR_REGION}} \
-          --image ${{env.IMAGE}} \
-          --platform "managed" \
-          --allow-unauthenticated \
-          --tag production \
-      - name: Deploy to GCP Run - Staging environment
-        if: github.ref != 'refs/heads/main'
-        run: |
-          echo "Deploying to staging environment"
-          # Deploy service with to staging environment
-          gcloud run deploy ${{vars.GCR_STAGING_PROJECT_NAME}} \
-          --region ${{vars.GCR_REGION}} \
-          --image ${{env.IMAGE}} \
-          --platform "managed" \
-          --allow-unauthenticated \
-          --tag staging \
+          docker build -t $ECR_REGISTRY/$REPO_NAME:$IMAGE_TAG .
+          docker tag $ECR_REGISTRY/$REPO_NAME:$IMAGE_TAG $ECR_REGISTRY/$REPO_NAME:latest
+          docker push $ECR_REGISTRY/$REPO_NAME --all-tags
