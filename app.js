@@ -15,6 +15,7 @@ app.get("/", (req, res, next) => {
     </html>
     <body>
       <h1>Hello world! I'm a Node/Express Js web server...</h1>
+      <p>I'm running on port ${process.env.PORT || 5000}</p>
     </body>
     `);
   next();
